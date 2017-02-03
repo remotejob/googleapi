@@ -2,6 +2,7 @@
 *.o
 *.a
 *.so
+goodaccounts.txt
 
 # Folders
 _obj

@@ -12,7 +12,15 @@ import (
 	"os/user"
 	"path/filepath"
 
+	"github.com/yhat/scrape"
+
+	"bytes"
+
+	"strings"
+
 	"golang.org/x/net/context"
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	mgmail "google.golang.org/api/gmail/v1"
@@ -112,30 +120,12 @@ func main() {
 	}
 
 	user := "me"
-	//   r, err := srv.Users.Labels.List(user).Do()
-	//   if err != nil {
-	//     log.Fatalf("Unable to retrieve labels. %v", err)
-	//   }
-	//   if (len(r.Labels) > 0) {
-	//     fmt.Print("Labels:\n")
-	//     for _, l := range r.Labels {
-	//       fmt.Printf("- %s\n",  l.Name)
-	//     }
-	//   } else {
-	//     fmt.Print("No labels found.")
-	//   } log.Println(part.MimeType,part.Body.Data)
 
-	job, err := srv.Users.Messages.List(user).Q("to:alexander@rouvat.fi and newer_than:10d").Do()
+	job, err := srv.Users.Messages.List(user).Q("from:do-not-reply@stackoverflow.com and newer_than:10d").Do()
 	if err != nil {
 		log.Fatalf("Unable to retrieve labels. %v", err)
 	}
 	for _, m := range job.Messages {
-
-		// fmt.Printf("\nMessage URL: https://mail.google.com/mail/u/0/#all/%v\n", m.Id)
-
-		//  log.Println(m.Raw)
-		// Create a new gmail service using the client
-		// fmt.Printf("Size: %v, Date: %v, Snippet: %q\n", m.size, m.date, m.snippet)
 
 		msg, err := srv.Users.Messages.Get(user, m.Id).Format("full").Do()
 		if err != nil {
@@ -143,51 +133,61 @@ func main() {
 		}
 
 		// log.Println(msg.Payload.Parts)
+		matcher := func(n *html.Node) bool {
+			// must check for nil values
+			if n.DataAtom == atom.A {
 
-		for _, part := range msg.Payload.Parts {
+				return true
 
-			// log.Println(msg.Raw)
-			// for _, part := range msg. {
-			// 	log.Println(string(part))
+			}
+			return false
+		}
+		for _, head := range msg.Payload.Headers {
 
-			// data, err := base64.StdEncoding.DecodeString(msg.Raw)
-			// if err != nil {
-			// 	log.Fatalf(err.Error())
-			// }
+			// log.Println(head)
 
-			// html := string(data)
-			// fmt.Println("html" + html)
-			// }
-			log.Println(part.MimeType)
+			if head.Name == "To" {
 
-			if part.MimeType == "multipart/alternative" {
+				file, err := os.OpenFile("goodaccounts.txt", os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+				if err != nil {
+					panic(err)
+				}
+				defer file.Close()
 
-				// log.Println(part.Parts[0])
-
-				// log.Println(part.Parts[1].Body.MarshalJSON())
-
-				// for _, mpart := range part.Parts {
-
-				// 	log.Println(mpart)
-				data, _ := base64.URLEncoding.DecodeString(part.Parts[1].Body.Data)
-				// data, _ := base64.URLEncoding.DecodeString(part.Parts[0].Body.Data)
-				html := string(data)
-				fmt.Println(html)
+				log.Println(head.Value)
+				if _, err = file.WriteString(head.Value + "\n"); err != nil {
+					panic(err)
+				}
+				file.Close()
 
 			}
 
 		}
+		for _, part := range msg.Payload.Parts {
 
-		//   for _, h := range msg.Payload.Headers {
+			if part.MimeType == "multipart/alternative" {
 
-		//     log.Println(h)
-		// 	// if h.Name == "Date" {
+				data, _ := base64.URLEncoding.DecodeString(part.Parts[1].Body.Data)
 
-		//   //             log.Println(h.Value)
+				root, err := html.Parse(bytes.NewReader(data))
+				if err != nil {
 
-		// 	// 	break
-		// 	// }
-		// }
+					log.Fatalln(err.Error())
+
+				}
+
+				links := scrape.FindAll(root, matcher)
+				for _, link := range links {
+					href := scrape.Attr(link, "href")
+
+					if strings.HasPrefix(href, "http://stackoverflow.com/jobs/messages/applications/") {
+						log.Println(href)
+					}
+
+				}
+			}
+
+		}
 
 	}
 
